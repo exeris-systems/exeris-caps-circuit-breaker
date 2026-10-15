@@ -21,7 +21,7 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 
 ## Where this sits
 
-Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry`: named `CircuitBreaker`s created through
+Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry` and, as a separate service for manual control, `CircuitBreakerAdmin`: named `CircuitBreaker`s created through
 `CircuitBreakers.newRegistry(config)`, with `CLOSED` / `OPEN` / `HALF_OPEN` states, a count-based sliding
 window, a failure-rate threshold, an open-state wait and a half-open permit budget (`LockFreeCircuitBreaker`
 over atomics). One compile dependency, `exeris-kernel-spi`, used only for the `CircuitBreakerEntitlement` requirement; no
@@ -30,8 +30,8 @@ over atomics). One compile dependency, `exeris-kernel-spi`, used only for the `C
 Gaps between the inventory and the code, found in the code:
 
 - HLA §3.2 names the service `CircuitBreakerPolicy` and lists `@Requires policy-chain`; the code provides
-  `CircuitBreakerRegistry` and requires nothing. The policy itself lives in the SKU
-  (`CircuitBreakerGatewayPolicy`), not in this cap.
+  `CircuitBreakerRegistry` and `CircuitBreakerAdmin` and requires nothing. The policy itself lives in the SKU
+  (`CircuitBreakerIngress`), not in this cap.
 - Every outcome call (`onSuccess`, `onError`, `onOutcome`) already carries `durationNanos`, but it is not
   used: there is no slow-call detection. Adding it later needs no contract change.
   `CircuitBreakerRegistry` is `AutoCloseable` but there is no `@CapabilityLifecycle`.
