@@ -25,7 +25,7 @@ Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry` and, as a separate
 `CircuitBreakers.newRegistry(config)`, with `CLOSED` / `OPEN` / `HALF_OPEN` states, a count-based sliding
 window, a failure-rate threshold, an open-state wait and a half-open permit budget (`LockFreeCircuitBreaker`
 over atomics). One compile dependency, `exeris-kernel-spi`, used only for the `CircuitBreakerEntitlement` requirement; no
-`@Requires`. 65 tests across six classes.
+`@Requires`.
 
 Gaps between the inventory and the code, found in the code:
 
