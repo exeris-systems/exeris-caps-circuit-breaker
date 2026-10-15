@@ -1,22 +1,53 @@
 # exeris-caps-circuit-breaker
 
-Circuit breaking as an Exeris capability. `CircuitBreakerRegistry` holds named `CircuitBreaker` instances, each a state machine over `CLOSED`, `OPEN` and `HALF_OPEN` that decides whether a call may proceed.
+Circuit breaking as an Exeris capability. `CircuitBreakerRegistry` holds named `CircuitBreaker` instances, each a state machine over `CLOSED`, `OPEN` and `HALF_OPEN` that decides whether a call may proceed. Manual control is a separate service, `CircuitBreakerAdmin`, with its own states `FORCED_OPEN` and `DISABLED`.
 
 Status: proof of concept, built against `exeris-kernel` 0.13.0-SNAPSHOT on JDK 25 LTS. The API is not stable and no artefact has been published.
 
 ## Where it sits
 
 - **Layer:** Layer 3 — Gateway policy, in the Tier 2 capability map of [`high-level-architecture.md`](https://github.com/exeris-systems/exeris-docs/blob/main/high-level-architecture.md) §3.2.
-- **Depends on:** nothing beyond `exeris-sdk-annotations` (`provided`).
-- **Provides** (`@Provides`, contract version 0.1.0): `CircuitBreakerRegistry`.
+- **Depends on:** `exeris-kernel-spi` (the entitlement requirement) and `exeris-sdk-annotations` (`provided`).
+- **Provides** (`@Provides`, contract version 0.1.0): `CircuitBreakerRegistry` (the call-site service) and `CircuitBreakerAdmin` (manual control).
 - **Requires:** no other capability.
 - **Wall (ADR-055):** `eu.exeris.caps.breaker.api` is the cross-cap surface; `eu.exeris.caps.breaker.internal` is private, and a sibling cap reaching into it fails the build. No Spring, servlet, Netty or reactive type may appear (ADR-006).
 
-## What the source contains
+## What it provides
 
-- `CircuitBreaker` exposes `tryAcquirePermission`, `recordSuccess`, `recordFailure(statusCode, durationNanos)`, explicit transitions to each state, and `reset`.
-- `CircuitBreakerConfig` is the immutable configuration of one breaker; `registry.getOrCreate(name)` creates a breaker with a default or a given configuration, and `find` and `all` look breakers up.
-- `LockFreeCircuitBreaker` keeps its state in atomic arrays and changes state without a lock; `CircuitBreakers` is the factory.
+### Call site: `CircuitBreakerRegistry` and `CircuitBreaker`
+
+- `acquirePermission()` returns a `Permit`: whether the call was admitted, and the state generation it was admitted in. Every state transition increments the generation.
+- The outcome is reported with that permit: `onSuccess(permit, nanos)`, `onError(permit, nanos)`, or `onOutcome(permit, outcome, nanos)`, which asks the breaker's `FailureClassifier`. An outcome whose permit belongs to an earlier generation is counted in `metrics()` (`staleOutcomes`) and never drives a transition, so a call admitted in `CLOSED` that finishes after the breaker went `OPEN` and `HALF_OPEN` neither closes nor reopens it, and only permits issued in a `HALF_OPEN` generation count as probes. A permit completes once; a second outcome, a rejected permit and a permit of another breaker are ignored the same way.
+- There is no outcome method without a permit and no state-changing method on this interface.
+
+### Manual control: `CircuitBreakerAdmin`
+
+`forceOpen`, `disable`, `release`, `state` and `states`. `FORCED_OPEN` refuses every call; `DISABLED` permits every call and outcomes never change the state. Automatic transitions never enter or leave either state; only `release` does, returning the breaker to `CLOSED` with fresh counters.
+
+Every action takes an `actor` string, is reported to the `AdminListener` as an `AdminEvent` (breaker name, action, previous state, new state, timestamp, actor) so a SKU can write it to an audit trail, and is logged through `System.Logger` (`eu.exeris.caps.breaker.admin`). A listener that throws is logged and does not undo the action.
+
+The service is created with `CircuitBreakers.newAdmin(registry, listener)`. Whoever is not handed it cannot change a breaker's state: the SKU grants `CircuitBreakerAdmin` to the operator-facing surface and to nothing else.
+
+### Failure classification
+
+A breaker counts an outcome as a failure as its `FailureClassifier` decides; it is set per breaker through `CircuitBreakerConfig.Builder#failureClassifier`, which is per route in a SKU that names breakers after routes. The default, `FailureClassifier.defaults()`, counts exactly:
+
+| Outcome | Failure |
+|---|---|
+| Transport error | yes |
+| Timeout | yes |
+| HTTP 500, 502, 503, 504 | yes |
+| Any other 5xx (501, 505, ...) | no |
+| Any 4xx, 429 included | no |
+| 1xx, 2xx, 3xx | no |
+
+A 429 never counts: backpressure belongs to retry and rate limiting.
+
+### Bounded registry
+
+A registry holds at most 1024 named breakers by default (`CircuitBreakers.newRegistry(config, maxBreakers)` changes it). Creating one beyond the limit throws `CircuitBreakerLimitExceededException` and increments `limitRejections()`. Breakers are never evicted, because evicting one loses the state of an open circuit. Breaker names must come from configuration or route definitions, never from request data.
+
+`LockFreeCircuitBreaker` keeps one phase object per state generation and swaps it with a compare-and-set, so state changes take no lock; `CircuitBreakers` is the factory.
 
 ## Build & test
 
