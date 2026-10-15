@@ -98,7 +98,8 @@ S8. **A refusing state refuses.** `acquirePermission` returns a permit that is n
     admits a call through such a breaker, or issues more probes than configured → `[HARD BLOCK]`.
 
 S9. **Outcomes are bound to permits and move the state machine as configured.** The outcome methods
-    (`onSuccess`, `onError`, `onOutcome`) take the `Permit` the call was admitted under; every state
+    (`onSuccess`, `onError`, `onOutcome`) take the primitive `long` permit `acquirePermission()` returned
+    for the call (read through `Permits`); admission allocates no permit object; every state
     transition increments the generation; an outcome whose permit is not of the current generation (or was
     already completed, rejected or foreign) is counted in the metrics only and never drives a transition;
     only permits issued in a `HALF_OPEN` generation count as probes. An outcome method without a permit, a
