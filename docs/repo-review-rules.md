@@ -23,7 +23,7 @@ sentence of those documents, the document is the one to read and to change.
 
 `exeris-caps-circuit-breaker` is a single-module Exeris capability (Layer 3 — Gateway policy), licence commercial (Exeris Commercial License 1.1), a proof of concept with
 no published artefact. Other capabilities and the SKUs that compose them compile against its
-`@Provides` services (`CircuitBreakerRegistry`), so a contract broken here breaks a composition elsewhere while this build stays
+`@Provides` services (`CircuitBreakerRegistry`, `CircuitBreakerAdmin`), so a contract broken here breaks a composition elsewhere while this build stays
 green. The shared `code` part judges whether a change is correct. What it cannot know is which of this
 capability's surfaces and invariants its own documents promise, and that is what follows.
 
@@ -92,23 +92,47 @@ S7. **Verification names what ran.** A local run may be cited as
     `target/surefire-reports` at `<sha>`, and the reviewer accepts that as the evidence of what ran
     locally. A Verification that claims a pass without a command, report path or sha → `[STYLE]`.
 
-S8. **An OPEN breaker refuses.** `tryAcquirePermission` returns `false` while a breaker is `OPEN`
-    and its wait period has not passed, and a `HALF_OPEN` breaker admits no more probe calls than its
-    configuration allows. A change that admits a call through an open breaker, or admits more
-    probes than configured → `[HARD BLOCK]`.
+S8. **A refusing state refuses.** `acquirePermission` returns a permit that is not `permitted()` while a
+    breaker is `OPEN` and its wait period has not passed, and always while it is `FORCED_OPEN`; a
+    `HALF_OPEN` generation issues no more probe permits than the configuration allows. A change that
+    admits a call through such a breaker, or issues more probes than configured → `[HARD BLOCK]`.
 
-S9. **Outcomes move the state machine as configured.** `recordFailure` and `recordSuccess` drive
-    `CLOSED`, `OPEN` and `HALF_OPEN` transitions from `CircuitBreakerConfig`. A transition that
-    ignores the configured failure-rate threshold, minimum number of calls or window, or that can leave a breaker in `HALF_OPEN` with no way
-    out → `[HARD BLOCK]`.
+S9. **Outcomes are bound to permits and move the state machine as configured.** The outcome methods
+    (`onSuccess`, `onError`, `onOutcome`) take the primitive `long` permit `acquirePermission()` returned
+    for the call (read through `Permits`); admission allocates no permit object; every state
+    transition increments the generation; an outcome whose permit is not of the current generation (or was
+    already completed, rejected or foreign) is counted in the metrics only and never drives a transition;
+    only permits issued in a `HALF_OPEN` generation count as probes. An outcome method without a permit, a
+    stale outcome that drives a transition or counts as a probe, a transition that ignores the configured
+    failure-rate threshold, minimum number of calls or window, or one that can leave a breaker in
+    `HALF_OPEN` with no way out → `[HARD BLOCK]`. A deprecated or overloaded permit-less outcome method is
+    the same finding.
 
-S10. **State changes are lock-free and atomic.** `LockFreeCircuitBreaker` keeps its state in atomic
-    arrays; concurrent callers must never observe or produce an impossible state. A lock, a
-    read-then-write on state that is not a compare-and-set, or a per-call allocation on the hot path
-    → `[CONTRACT]`.
+S10. **State changes are lock-free and atomic.** `LockFreeCircuitBreaker` swaps one phase object per
+    generation with a compare-and-set; concurrent callers must never observe or produce an impossible
+    state. A lock, a read-then-write on state that is not a compare-and-set, or a counter shared across
+    generations → `[CONTRACT]`.
 
-S11. **The registry is keyed by name.** `getOrCreate(name)` returns the one breaker for a name under
-    concurrency. A change that can create two breakers for one name → `[CONTRACT]`.
+S11. **The registry is keyed by name and bounded.** `getOrCreate(name)` returns the one breaker for a name
+    under concurrency, and the registry holds at most `maxBreakers()` (default 1024). Creating one beyond
+    the limit is `CircuitBreakerLimitExceededException` plus the `limitRejections()` counter. A change that
+    can create two breakers for one name, can exceed the limit, silently drops the request, or evicts a
+    breaker to make room (LRU or otherwise) → `[CONTRACT]`; eviction of an open circuit's state is
+    `[HARD BLOCK]`. A caller deriving a breaker name from request data → `[CONTRACT]`.
+
+S12. **Manual control is a separate capability.** `CircuitBreaker` (the call-site interface) has no method
+    that changes state by hand: no `transitionTo*`, `reset`, `forceOpen`, `disable` or `release`; those are
+    `CircuitBreakerAdmin`, declared as its own `@Provides`. `FORCED_OPEN` and `DISABLED` are entered and left
+    only by an admin action (`release`), never by an automatic transition. Every admin action takes an
+    actor and is reported to the `AdminListener` (breaker name, action, previous state, new state,
+    timestamp, actor) and logged. A state-changing method on the call-site interface, an automatic path
+    into or out of a manual state, or an admin action that is not reported → `[CONTRACT]`.
+
+S13. **Failure classification is in the contract.** `FailureClassifier.defaults()` counts exactly a transport
+    error, a timeout and HTTP 500, 502, 503 and 504; no 4xx counts, 429 included, and its Javadoc and the
+    README table state the same set. A different default, a 4xx or 429 counted by default, or a classifier
+    that cannot be set per breaker through `CircuitBreakerConfig` → `[CONTRACT]`; a default table that no
+    test covers → `[CONTRACT]`.
 
 ## Where this does not apply, and what it costs
 

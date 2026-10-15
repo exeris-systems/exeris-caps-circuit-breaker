@@ -1,3 +1,12 @@
+---
+title: "exeris-caps-circuit-breaker — Roadmap"
+type: roadmap
+visibility: public
+owning-repo: exeris-caps-circuit-breaker
+status: active
+last-verified: 2026-10-15
+---
+
 # exeris-caps-circuit-breaker — Roadmap
 
 Status: **poc**. Version line: **0.1.x**. Licence: Exeris Commercial License (ADR-023), entitlement id
@@ -12,16 +21,17 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 
 ## Where this sits
 
-Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry`: named `CircuitBreaker`s created through
+Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry` and, as a separate service for manual control, `CircuitBreakerAdmin`: named `CircuitBreaker`s created through
 `CircuitBreakers.newRegistry(config)`, with `CLOSED` / `OPEN` / `HALF_OPEN` states, a count-based sliding
 window, a failure-rate threshold, an open-state wait and a half-open permit budget (`LockFreeCircuitBreaker`
-over atomics). Zero runtime dependencies; no `@Requires`. 9 tests across two classes.
+over atomics). One compile dependency, `exeris-kernel-spi`, used only for the `CircuitBreakerEntitlement` requirement; no
+`@Requires`.
 
 Gaps between the inventory and the code, found in the code:
 
 - HLA §3.2 names the service `CircuitBreakerPolicy` and lists `@Requires policy-chain`; the code provides
-  `CircuitBreakerRegistry` and requires nothing. The policy itself lives in the SKU
-  (`CircuitBreakerGatewayPolicy`), not in this cap.
+  `CircuitBreakerRegistry` and `CircuitBreakerAdmin` and requires nothing. The policy itself lives in the SKU
+  (`CircuitBreakerIngress`), not in this cap.
 - Every outcome call (`onSuccess`, `onError`, `onOutcome`) already carries `durationNanos`, but it is not
   used: there is no slow-call detection. Adding it later needs no contract change.
   `CircuitBreakerRegistry` is `AutoCloseable` but there is no `@CapabilityLifecycle`.
@@ -42,7 +52,7 @@ Gaps between the inventory and the code, found in the code:
 - [ ] Defects found in the pre-import review are fixed in the import, each with a test
 - [ ] Code imported; repository files and ADR link stubs added
 - [ ] `@Provides(CircuitBreakerRegistry)` and `@Provides(CircuitBreakerAdmin)` at contract `0.1.0`
-- [ ] Outcomes bound to a `Permit` carrying the state generation; an outcome from an earlier generation
+- [ ] Outcomes bound to a permit carrying the state generation; an outcome from an earlier generation
       is counted in metrics only and never drives a transition
 - [ ] Manual control (`forceOpen`, `disable`, `release`) only through the separate `CircuitBreakerAdmin`
       service, with distinct `FORCED_OPEN` / `DISABLED` states and an admin listener for audit
@@ -62,8 +72,8 @@ Gaps between the inventory and the code, found in the code:
 Follows the gateway-core PR that replaces its `PolicyChain`.
 
 - [ ] Optional `@Requires(RequestFilterChain, "[0.1.0,0.2.0)")` and a `CircuitBreakerServiceBoundaryBinding`
-      in `api`, on the pattern of `exeris-caps-rate-limiting`; replaces the SKU-side `CircuitBreakerGatewayPolicy`
-- [ ] Outcome recording (`onOutcome(Permit, CallOutcome, durationNanos)` from the upstream result) happens after the
+      in `api`, on the pattern of `exeris-caps-rate-limiting`; replaces the SKU-side `CircuitBreakerIngress`
+- [ ] Outcome recording (`onOutcome(permit, CallOutcome, durationNanos)` from the upstream result) happens after the
       handler runs; `AdmissionFilter` is pre-handler only, so this depends on the response-side ADR
       (entry condition: accepted before this milestone starts; see gateway-core 0.2.0)
 - [ ] The same upstream outcome feeds both this breaker and `UpstreamPoolService.recordResult`; whether both

@@ -1,0 +1,33 @@
+{
+  "schemaVersion" : 2,
+  "stamp" : {
+    "validated" : true,
+    "compositionVersion" : "0.0.0",
+    "contentBinding" : "sha256:27c0cb3e0d78eb50a723f94fade7fd6bcd5307ba012d086cc09e667db2459c5d"
+  },
+  "modules" : [
+    {
+      "name" : "CircuitBreakerModule",
+      "packageName" : "eu.exeris.caps.breaker",
+      "qualifiedName" : "eu.exeris.caps.breaker.CircuitBreakerModule",
+      "module" : {
+        "provides" : [
+          {
+            "service" : "eu.exeris.caps.breaker.api.CircuitBreakerRegistry",
+            "version" : "0.1.0"
+          },
+          {
+            "service" : "eu.exeris.caps.breaker.api.CircuitBreakerAdmin",
+            "version" : "0.1.0"
+          }
+        ],
+        "requires" : [ ]
+      }
+    }
+  ],
+  "resolutions" : [ ],
+  "initOrder" : [
+    "eu.exeris.caps.breaker.CircuitBreakerModule"
+  ],
+  "warnings" : [ ]
+}
