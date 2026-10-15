@@ -24,7 +24,8 @@ Milestones are versions, not dates. Dates appear only on what has shipped; nothi
 Layer 3 gateway policy cap. Provides `CircuitBreakerRegistry`: named `CircuitBreaker`s created through
 `CircuitBreakers.newRegistry(config)`, with `CLOSED` / `OPEN` / `HALF_OPEN` states, a count-based sliding
 window, a failure-rate threshold, an open-state wait and a half-open permit budget (`LockFreeCircuitBreaker`
-over atomics). Zero runtime dependencies; no `@Requires`. 9 tests across two classes.
+over atomics). One compile dependency, `exeris-kernel-spi`, used only for the `CircuitBreakerEntitlement` requirement; no
+`@Requires`. 65 tests across six classes.
 
 Gaps between the inventory and the code, found in the code:
 
