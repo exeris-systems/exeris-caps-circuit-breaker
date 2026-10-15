@@ -1,3 +1,12 @@
+---
+title: "exeris-caps-circuit-breaker — Roadmap"
+type: roadmap
+visibility: public
+owning-repo: exeris-caps-circuit-breaker
+status: active
+last-verified: 2026-10-15
+---
+
 # exeris-caps-circuit-breaker — Roadmap
 
 Status: **poc**. Version line: **0.1.x**. Licence: Exeris Commercial License (ADR-023), entitlement id
