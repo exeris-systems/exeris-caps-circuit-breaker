@@ -6,9 +6,10 @@ package eu.exeris.caps.breaker.api;
  * <p>This is the call-site interface: it admits calls and records their outcomes, and nothing here changes a
  * breaker's state by hand. Manual control is {@link CircuitBreakerAdmin}. No operation takes a lock.
  *
- * <p>A call is admitted with {@link #acquirePermission()}, and its outcome is reported with the {@link Permit}
- * it was admitted under. An outcome whose permit belongs to an earlier state generation is counted in
- * {@link #metrics()} only and never drives a transition.
+ * <p>A call is admitted with {@link #acquirePermission()}, which returns a primitive permit, and its outcome
+ * is reported with the permit it was admitted under; {@link Permits} reads it. An outcome whose permit
+ * belongs to an earlier state generation is counted in {@link #metrics()} only and never drives a transition.
+ * Admitting a call and recording an outcome allocate nothing while the breaker stays in the same state.
  *
  * @since 0.1.0
  */
@@ -42,14 +43,15 @@ public interface CircuitBreaker {
     /**
      * Asks to execute a request against the upstream.
      *
-     * <p>Executes on the hot request path. If the circuit is {@link CircuitState#OPEN} or
-     * {@link CircuitState#FORCED_OPEN}, the returned permit is not {@linkplain Permit#permitted() permitted}.
-     * In {@link CircuitState#HALF_OPEN} at most the configured number of probe permits is issued per
-     * generation.
+     * <p>Executes on the hot request path and returns a primitive, so it allocates nothing. If the circuit is
+     * {@link CircuitState#OPEN} or {@link CircuitState#FORCED_OPEN}, the returned permit is not
+     * {@linkplain Permits#permitted(long) permitted}. In {@link CircuitState#HALF_OPEN} at most the configured
+     * number of probe permits is issued per generation. A transition that this call performs (the end of the
+     * wait period of an OPEN breaker) allocates the state of the new generation.
      *
-     * @return the decision, bound to the current generation
+     * @return the decision, bound to the current generation; read it with {@link Permits}
      */
-    Permit acquirePermission();
+    long acquirePermission();
 
     /**
      * Records that the call admitted under {@code permit} succeeded.
@@ -57,7 +59,7 @@ public interface CircuitBreaker {
      * @param permit        the permit the call was admitted under
      * @param durationNanos the call execution duration in nanoseconds
      */
-    void onSuccess(Permit permit, long durationNanos);
+    void onSuccess(long permit, long durationNanos);
 
     /**
      * Records that the call admitted under {@code permit} failed, without consulting the classifier.
@@ -65,7 +67,7 @@ public interface CircuitBreaker {
      * @param permit        the permit the call was admitted under
      * @param durationNanos the call execution duration in nanoseconds
      */
-    void onError(Permit permit, long durationNanos);
+    void onError(long permit, long durationNanos);
 
     /**
      * Records the outcome of the call admitted under {@code permit}, classified by the breaker's
@@ -75,5 +77,5 @@ public interface CircuitBreaker {
      * @param outcome       what the call produced
      * @param durationNanos the call execution duration in nanoseconds
      */
-    void onOutcome(Permit permit, CallOutcome outcome, long durationNanos);
+    void onOutcome(long permit, CallOutcome outcome, long durationNanos);
 }

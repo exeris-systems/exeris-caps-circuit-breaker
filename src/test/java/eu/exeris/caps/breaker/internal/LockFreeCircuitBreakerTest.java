@@ -4,7 +4,7 @@ import eu.exeris.caps.breaker.api.CallOutcome;
 import eu.exeris.caps.breaker.api.CircuitBreaker;
 import eu.exeris.caps.breaker.api.CircuitBreakerConfig;
 import eu.exeris.caps.breaker.api.CircuitState;
-import eu.exeris.caps.breaker.api.Permit;
+import eu.exeris.caps.breaker.api.Permits;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,14 +31,14 @@ class LockFreeCircuitBreakerTest {
     }
 
     private static void fail(CircuitBreaker breaker) {
-        Permit permit = breaker.acquirePermission();
-        assertThat(permit.permitted()).isTrue();
+        long permit = breaker.acquirePermission();
+        assertThat(Permits.permitted(permit)).isTrue();
         breaker.onError(permit, 1000);
     }
 
     private static void succeed(CircuitBreaker breaker) {
-        Permit permit = breaker.acquirePermission();
-        assertThat(permit.permitted()).isTrue();
+        long permit = breaker.acquirePermission();
+        assertThat(Permits.permitted(permit)).isTrue();
         breaker.onSuccess(permit, 1000);
     }
 
@@ -56,7 +56,7 @@ class LockFreeCircuitBreakerTest {
         CircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(10, 5, 100, 2));
 
         assertThat(breaker.state()).isEqualTo(CircuitState.CLOSED);
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
     }
 
     @Test
@@ -71,15 +71,15 @@ class LockFreeCircuitBreakerTest {
 
         fail(breaker);
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
     }
 
     @Test
     @DisplayName("Every state transition increments the generation, and a permit carries the one it was issued in")
     void generationIncrementsOnEveryTransition() throws Exception {
         LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(5, 2, 30, 1));
-        Permit closedPermit = breaker.acquirePermission();
-        assertThat(closedPermit.generation()).isEqualTo(breaker.generation());
+        long closedPermit = breaker.acquirePermission();
+        assertThat(Permits.generation(closedPermit)).isEqualTo(breaker.generation());
         long closed = breaker.generation();
 
         fail(breaker);
@@ -87,11 +87,11 @@ class LockFreeCircuitBreakerTest {
         assertThat(breaker.generation()).isEqualTo(closed + 1);
 
         Thread.sleep(50);
-        Permit probe = breaker.acquirePermission();
-        assertThat(probe.permitted()).isTrue();
+        long probe = breaker.acquirePermission();
+        assertThat(Permits.permitted(probe)).isTrue();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
         assertThat(breaker.generation()).isEqualTo(closed + 2);
-        assertThat(probe.generation()).isEqualTo(closed + 2);
+        assertThat(Permits.generation(probe)).isEqualTo(closed + 2);
 
         breaker.onSuccess(probe, 1);
         assertThat(breaker.state()).isEqualTo(CircuitState.CLOSED);
@@ -103,13 +103,13 @@ class LockFreeCircuitBreakerTest {
     void shortCircuitsAndTransitionsToHalfOpen() throws InterruptedException {
         LockFreeCircuitBreaker breaker = tripped(50, 2);
 
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
         Thread.sleep(70);
 
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
     }
 
     @Test
@@ -118,8 +118,8 @@ class LockFreeCircuitBreakerTest {
         LockFreeCircuitBreaker breaker = tripped(50, 2);
         Thread.sleep(70);
 
-        Permit first = breaker.acquirePermission();
-        Permit second = breaker.acquirePermission();
+        long first = breaker.acquirePermission();
+        long second = breaker.acquirePermission();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
 
         breaker.onSuccess(first, 500);
@@ -127,7 +127,7 @@ class LockFreeCircuitBreakerTest {
 
         breaker.onSuccess(second, 500);
         assertThat(breaker.state()).isEqualTo(CircuitState.CLOSED);
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
     }
 
     @Test
@@ -136,26 +136,26 @@ class LockFreeCircuitBreakerTest {
         LockFreeCircuitBreaker breaker = tripped(50, 2);
         Thread.sleep(70);
 
-        Permit probe = breaker.acquirePermission();
+        long probe = breaker.acquirePermission();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
 
         breaker.onOutcome(probe, CallOutcome.response(503), 500);
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
     }
 
     @Test
     @DisplayName("A call admitted in CLOSED that completes after OPEN -> HALF_OPEN neither closes nor reopens")
     void staleClosedOutcomeDoesNotDriveHalfOpen() throws InterruptedException {
         LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(5, 2, 40, 2));
-        Permit slowSuccess = breaker.acquirePermission();
-        Permit slowFailure = breaker.acquirePermission();
+        long slowSuccess = breaker.acquirePermission();
+        long slowFailure = breaker.acquirePermission();
         fail(breaker);
         fail(breaker);
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
         Thread.sleep(60);
-        Permit probe = breaker.acquirePermission();
-        assertThat(probe.permitted()).isTrue();
+        long probe = breaker.acquirePermission();
+        assertThat(Permits.permitted(probe)).isTrue();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
         long generation = breaker.generation();
 
@@ -173,11 +173,11 @@ class LockFreeCircuitBreakerTest {
     @DisplayName("A stale success in HALF_OPEN does not count as a probe")
     void staleSuccessIsNotAProbe() throws InterruptedException {
         LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(5, 2, 40, 1));
-        Permit slow = breaker.acquirePermission();
+        long slow = breaker.acquirePermission();
         fail(breaker);
         fail(breaker);
         Thread.sleep(60);
-        Permit probe = breaker.acquirePermission();
+        long probe = breaker.acquirePermission();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
 
         breaker.onSuccess(slow, 1);
@@ -192,15 +192,15 @@ class LockFreeCircuitBreakerTest {
     void staleFailureAndOlderHalfOpenProbe() throws InterruptedException {
         LockFreeCircuitBreaker breaker = tripped(30, 1);
         Thread.sleep(50);
-        Permit olderProbe = breaker.acquirePermission();
+        long olderProbe = breaker.acquirePermission();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
         // The probe never reports; after a further wait period the breaker re-opens, then half-opens again.
         Thread.sleep(50);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
         Thread.sleep(50);
-        Permit newerProbe = breaker.acquirePermission();
-        assertThat(newerProbe.permitted()).isTrue();
+        long newerProbe = breaker.acquirePermission();
+        assertThat(Permits.permitted(newerProbe)).isTrue();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
 
         breaker.onSuccess(olderProbe, 1);
@@ -217,8 +217,8 @@ class LockFreeCircuitBreakerTest {
     void duplicateForeignAndRejectedPermits() {
         LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(5, 2, 1000, 1));
         LockFreeCircuitBreaker other = new LockFreeCircuitBreaker("o", config(5, 2, 1000, 1));
-        Permit permit = breaker.acquirePermission();
-        Permit foreign = other.acquirePermission();
+        long permit = breaker.acquirePermission();
+        long foreign = other.acquirePermission();
 
         breaker.onError(permit, 1);
         breaker.onError(permit, 1);
@@ -229,11 +229,31 @@ class LockFreeCircuitBreakerTest {
 
         breaker.onError(breaker.acquirePermission(), 1);
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
-        Permit rejected = breaker.acquirePermission();
-        assertThat(rejected.permitted()).isFalse();
+        long rejected = breaker.acquirePermission();
+        assertThat(Permits.permitted(rejected)).isFalse();
         breaker.onSuccess(rejected, 1);
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
-        assertThatThrownBy(() -> breaker.onSuccess(null, 1)).isInstanceOf(NullPointerException.class);
+
+        long staleBefore = breaker.metrics().staleOutcomes();
+        breaker.onSuccess(0L, 1);
+        breaker.onSuccess(rejected | Long.MIN_VALUE, 1);
+        assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
+        assertThat(breaker.metrics().staleOutcomes()).isEqualTo(staleBefore + 2);
+    }
+
+    @Test
+    @DisplayName("A permit that is never reported does not hold a slot, and its late outcome is stale")
+    void displacedPermitIsStale() {
+        LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(5, 5, 1000, 1));
+        long leaked = breaker.acquirePermission();
+        for (int i = 0; i < LockFreeCircuitBreaker.TRACKED_ADMISSIONS; i++) {
+            succeed(breaker);
+        }
+        long staleBefore = breaker.metrics().staleOutcomes();
+        breaker.onError(leaked, 1);
+        assertThat(breaker.metrics().staleOutcomes()).isEqualTo(staleBefore + 1);
+        assertThat(breaker.state()).isEqualTo(CircuitState.CLOSED);
+        succeed(breaker);
     }
 
     @Test
@@ -272,7 +292,7 @@ class LockFreeCircuitBreakerTest {
             int threads = 8;
             CountDownLatch start = new CountDownLatch(1);
             AtomicInteger admitted = new AtomicInteger();
-            List<Permit> issued = java.util.Collections.synchronizedList(new ArrayList<>());
+            List<Long> issued = java.util.Collections.synchronizedList(new ArrayList<>());
             List<Thread> workers = new ArrayList<>();
             for (int t = 0; t < threads; t++) {
                 Thread w = new Thread(() -> {
@@ -281,8 +301,8 @@ class LockFreeCircuitBreakerTest {
                     } catch (InterruptedException e) {
                         return;
                     }
-                    Permit permit = breaker.acquirePermission();
-                    if (permit.permitted()) {
+                    long permit = breaker.acquirePermission();
+                    if (Permits.permitted(permit)) {
                         admitted.incrementAndGet();
                         issued.add(permit);
                     }
@@ -295,7 +315,7 @@ class LockFreeCircuitBreakerTest {
                 w.join();
             }
             assertThat(admitted.get()).isLessThanOrEqualTo(permitted);
-            assertThat(issued).extracting(Permit::generation).containsOnly(issued.isEmpty() ? 0L : issued.get(0).generation());
+            assertThat(issued).extracting(Permits::generation).containsOnly(issued.isEmpty() ? 0L : Permits.generation(issued.get(0)));
         }
     }
 
@@ -306,14 +326,14 @@ class LockFreeCircuitBreakerTest {
         for (int round = 0; round < 100; round++) {
             LockFreeCircuitBreaker breaker = tripped(1, probes);
             Thread.sleep(3);
-            List<Permit> permits = new ArrayList<>();
+            List<Long> permits = new ArrayList<>();
             for (int i = 0; i < probes; i++) {
                 permits.add(breaker.acquirePermission());
             }
             long halfOpen = breaker.generation();
             CountDownLatch start = new CountDownLatch(1);
             List<Thread> workers = new ArrayList<>();
-            for (Permit permit : permits) {
+            for (long permit : permits) {
                 Thread w = new Thread(() -> {
                     try {
                         start.await();
@@ -339,16 +359,16 @@ class LockFreeCircuitBreakerTest {
     void halfOpenWithoutOutcomesDoesNotStayForever() throws Exception {
         LockFreeCircuitBreaker breaker = tripped(30, 2);
         Thread.sleep(50);
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
 
         Thread.sleep(50);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
         assertThat(breaker.state()).isEqualTo(CircuitState.OPEN);
 
         Thread.sleep(50);
-        assertThat(breaker.acquirePermission().permitted()).isTrue();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isTrue();
         assertThat(breaker.state()).isEqualTo(CircuitState.HALF_OPEN);
     }
 }

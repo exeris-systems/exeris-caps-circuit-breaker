@@ -5,7 +5,7 @@ package eu.exeris.caps.breaker.api;
  *
  * <p>{@link #CLOSED}, {@link #OPEN} and {@link #HALF_OPEN} are the automatic states: the breaker moves between
  * them on its own from the recorded outcomes. {@link #FORCED_OPEN} and {@link #DISABLED} are manual: the
- * breaker never enters or leaves them automatically, and only {@link CircuitBreakerAdmin#release} leaves them.
+ * breaker never enters or leaves them automatically, and only a manual action leaves them; {@link CircuitBreakerAdmin#release} is the only way back to automatic operation.
  *
  * @since 0.1.0
  */

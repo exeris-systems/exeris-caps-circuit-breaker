@@ -5,13 +5,13 @@ import eu.exeris.caps.breaker.api.CircuitBreaker;
 import eu.exeris.caps.breaker.api.CircuitBreakerConfig;
 import eu.exeris.caps.breaker.api.CircuitBreakerMetrics;
 import eu.exeris.caps.breaker.api.CircuitState;
-import eu.exeris.caps.breaker.api.Permit;
+import eu.exeris.caps.breaker.api.Permits;
 
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -21,12 +21,33 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>The state lives in one immutable-identity {@link Phase} per state generation, swapped with a
  * compare-and-set. A phase owns its own counters (the sliding window of a CLOSED phase, the probe counters of
  * a HALF_OPEN phase), so an outcome that arrives after the breaker has moved on can only touch the phase it
- * was admitted in, which no longer drives anything. A transition allocates a phase; the admission path
- * allocates one {@link IssuedPermit}.
+ * was admitted in, which no longer drives anything.
+ *
+ * <p>A permit is a {@code long}: {@code [admitted:1][breaker:20][generation:20][ticket:23]}. Admissions are
+ * numbered by a ticket counter and the permit of each admitted call is written into a fixed table, indexed by
+ * ticket. Completing an outcome clears the table entry with a compare-and-set on the whole permit, so exactly
+ * one outcome per permit gets through, and a permit of another breaker, of an earlier generation or one that
+ * was never admitted finds no matching entry or the wrong identity. The table is allocated once with the
+ * breaker; an admission overwrites the entry of the admission {@value #TRACKED_ADMISSIONS} tickets before
+ * it, so a permit that is never reported cannot hold a slot.
+ *
+ * <p>The admission and outcome paths allocate nothing while the breaker stays in one state; a transition
+ * allocates the {@link Phase} of the new generation.
  *
  * @since 0.1.0
  */
 public final class LockFreeCircuitBreaker implements CircuitBreaker {
+
+    /** Admissions remembered for completion tracking; a power of two. */
+    static final int TRACKED_ADMISSIONS = 1024;
+
+    private static final int ADMITTED_SHIFT = 63;
+    private static final int BREAKER_SHIFT = 43;
+    private static final int GENERATION_SHIFT = 23;
+    private static final long BREAKER_MASK = (1L << 20) - 1;
+    private static final long GENERATION_MASK = (1L << Permits.GENERATION_BITS) - 1;
+    private static final long TICKET_MASK = (1L << 23) - 1;
+    private static final AtomicInteger BREAKER_IDS = new AtomicInteger();
 
     private static final int OUTCOME_EMPTY = 0;
     private static final int OUTCOME_SUCCESS = 1;
@@ -35,6 +56,9 @@ public final class LockFreeCircuitBreaker implements CircuitBreaker {
     private final String name;
     private final CircuitBreakerConfig config;
     private final AtomicReference<Phase> phase = new AtomicReference<>();
+    private final long breakerId = BREAKER_IDS.getAndIncrement() & BREAKER_MASK;
+    private final AtomicLong tickets = new AtomicLong();
+    private final AtomicLongArray admissions = new AtomicLongArray(TRACKED_ADMISSIONS);
 
     private final LongAdder permitted = new LongAdder();
     private final LongAdder rejected = new LongAdder();
@@ -77,7 +101,7 @@ public final class LockFreeCircuitBreaker implements CircuitBreaker {
     // ---- admission --------------------------------------------------------------------------------------
 
     @Override
-    public Permit acquirePermission() {
+    public long acquirePermission() {
         for (;;) {
             Phase p = phase.get();
             switch (p.state) {
@@ -117,38 +141,52 @@ public final class LockFreeCircuitBreaker implements CircuitBreaker {
         }
     }
 
-    private Permit admit(Phase p) {
+    private long admit(Phase p) {
         permitted.increment();
-        return new IssuedPermit(this, p.generation, true);
+        long ticket = tickets.getAndIncrement() & TICKET_MASK;
+        long permit = encode(true, p.generation, ticket);
+        admissions.set((int) (ticket & (TRACKED_ADMISSIONS - 1)), permit);
+        return permit;
     }
 
-    private Permit reject(Phase p) {
+    private long reject(Phase p) {
         rejected.increment();
-        return new IssuedPermit(this, p.generation, false);
+        return encode(false, p.generation, 0L);
+    }
+
+    private long encode(boolean admitted, long generation, long ticket) {
+        return (admitted ? 1L << ADMITTED_SHIFT : 0L) | (breakerId << BREAKER_SHIFT)
+                | ((generation & GENERATION_MASK) << GENERATION_SHIFT) | ticket;
+    }
+
+    /** @return {@code true} for the first completion of an admission of this breaker only */
+    private boolean complete(long permit) {
+        if (!Permits.permitted(permit) || ((permit >>> BREAKER_SHIFT) & BREAKER_MASK) != breakerId) {
+            return false;
+        }
+        return admissions.compareAndSet((int) (permit & (TRACKED_ADMISSIONS - 1)), permit, 0L);
     }
 
     // ---- outcomes ---------------------------------------------------------------------------------------
 
     @Override
-    public void onSuccess(Permit permit, long durationNanos) {
+    public void onSuccess(long permit, long durationNanos) {
         record(permit, false);
     }
 
     @Override
-    public void onError(Permit permit, long durationNanos) {
+    public void onError(long permit, long durationNanos) {
         record(permit, true);
     }
 
     @Override
-    public void onOutcome(Permit permit, CallOutcome outcome, long durationNanos) {
+    public void onOutcome(long permit, CallOutcome outcome, long durationNanos) {
         Objects.requireNonNull(outcome, "outcome");
         record(permit, config.failureClassifier().isFailure(outcome));
     }
 
-    private void record(Permit permit, boolean failure) {
-        Objects.requireNonNull(permit, "permit");
-        if (!(permit instanceof IssuedPermit issued) || issued.owner != this || !issued.permitted()
-                || !issued.complete()) {
+    private void record(long permit, boolean failure) {
+        if (!complete(permit)) {
             // Foreign, rejected or already completed: counted, never acted on.
             staleOutcomes.increment();
             return;
@@ -156,7 +194,7 @@ public final class LockFreeCircuitBreaker implements CircuitBreaker {
         (failure ? failures : successes).increment();
 
         Phase p = phase.get();
-        if (issued.generation() != p.generation) {
+        if (Permits.generation(permit) != (p.generation & GENERATION_MASK)) {
             staleOutcomes.increment();
             return;
         }
@@ -271,40 +309,6 @@ public final class LockFreeCircuitBreaker implements CircuitBreaker {
 
         static Phase forced(long generation, CircuitState state) {
             return new Phase(state, generation, 0L, 0);
-        }
-    }
-
-    /** A decision bound to its issuing breaker and generation; completes at most once. */
-    private static final class IssuedPermit implements Permit {
-        final LockFreeCircuitBreaker owner;
-        private final long generation;
-        private final boolean permitted;
-        private final AtomicBoolean completed = new AtomicBoolean();
-
-        IssuedPermit(LockFreeCircuitBreaker owner, long generation, boolean permitted) {
-            this.owner = owner;
-            this.generation = generation;
-            this.permitted = permitted;
-        }
-
-        @Override
-        public boolean permitted() {
-            return permitted;
-        }
-
-        @Override
-        public long generation() {
-            return generation;
-        }
-
-        /** @return {@code true} for the first completion only */
-        boolean complete() {
-            return completed.compareAndSet(false, true);
-        }
-
-        @Override
-        public String toString() {
-            return "Permit[" + owner.name + ", generation=" + generation + ", permitted=" + permitted + "]";
         }
     }
 }

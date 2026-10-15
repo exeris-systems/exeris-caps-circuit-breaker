@@ -52,7 +52,7 @@ Gaps between the inventory and the code, found in the code:
 - [ ] Defects found in the pre-import review are fixed in the import, each with a test
 - [ ] Code imported; repository files and ADR link stubs added
 - [ ] `@Provides(CircuitBreakerRegistry)` and `@Provides(CircuitBreakerAdmin)` at contract `0.1.0`
-- [ ] Outcomes bound to a `Permit` carrying the state generation; an outcome from an earlier generation
+- [ ] Outcomes bound to a permit carrying the state generation; an outcome from an earlier generation
       is counted in metrics only and never drives a transition
 - [ ] Manual control (`forceOpen`, `disable`, `release`) only through the separate `CircuitBreakerAdmin`
       service, with distinct `FORCED_OPEN` / `DISABLED` states and an admin listener for audit
@@ -72,8 +72,8 @@ Gaps between the inventory and the code, found in the code:
 Follows the gateway-core PR that replaces its `PolicyChain`.
 
 - [ ] Optional `@Requires(RequestFilterChain, "[0.1.0,0.2.0)")` and a `CircuitBreakerServiceBoundaryBinding`
-      in `api`, on the pattern of `exeris-caps-rate-limiting`; replaces the SKU-side `CircuitBreakerGatewayPolicy`
-- [ ] Outcome recording (`onOutcome(Permit, CallOutcome, durationNanos)` from the upstream result) happens after the
+      in `api`, on the pattern of `exeris-caps-rate-limiting`; replaces the SKU-side `CircuitBreakerIngress`
+- [ ] Outcome recording (`onOutcome(permit, CallOutcome, durationNanos)` from the upstream result) happens after the
       handler runs; `AdmissionFilter` is pre-handler only, so this depends on the response-side ADR
       (entry condition: accepted before this milestone starts; see gateway-core 0.2.0)
 - [ ] The same upstream outcome feeds both this breaker and `UpstreamPoolService.recordResult`; whether both

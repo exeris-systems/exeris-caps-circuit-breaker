@@ -8,7 +8,7 @@ import eu.exeris.caps.breaker.api.CircuitBreakerConfig;
 import eu.exeris.caps.breaker.api.CircuitBreakerRegistry;
 import eu.exeris.caps.breaker.api.CircuitBreakers;
 import eu.exeris.caps.breaker.api.CircuitState;
-import eu.exeris.caps.breaker.api.Permit;
+import eu.exeris.caps.breaker.api.Permits;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +36,7 @@ class CircuitBreakerAdminTest {
     @DisplayName("FORCED_OPEN refuses every call, and neither time nor outcomes leave it")
     void forcedOpenIsHeld() throws Exception {
         CircuitBreaker breaker = registry.getOrCreate("route-a");
-        Permit inFlight = breaker.acquirePermission();
+        long inFlight = breaker.acquirePermission();
 
         AdminEvent event = admin.forceOpen("route-a", "alice");
 
@@ -44,10 +44,10 @@ class CircuitBreakerAdminTest {
         assertThat(event.newState()).isEqualTo(CircuitState.FORCED_OPEN);
         assertThat(breaker.state()).isEqualTo(CircuitState.FORCED_OPEN);
         Thread.sleep(50);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
         breaker.onSuccess(inFlight, 1);
         assertThat(breaker.state()).isEqualTo(CircuitState.FORCED_OPEN);
-        assertThat(breaker.acquirePermission().permitted()).isFalse();
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
     }
 
     @Test
@@ -57,8 +57,8 @@ class CircuitBreakerAdminTest {
         admin.disable("route-a", "alice");
 
         for (int i = 0; i < 20; i++) {
-            Permit permit = breaker.acquirePermission();
-            assertThat(permit.permitted()).isTrue();
+            long permit = breaker.acquirePermission();
+            assertThat(Permits.permitted(permit)).isTrue();
             breaker.onError(permit, 1);
         }
         assertThat(breaker.state()).isEqualTo(CircuitState.DISABLED);
@@ -91,8 +91,8 @@ class CircuitBreakerAdminTest {
     @DisplayName("An outcome admitted before an admin action never drives a transition afterwards")
     void adminActionStartsANewGeneration() {
         CircuitBreaker breaker = registry.getOrCreate("route-a");
-        Permit a = breaker.acquirePermission();
-        Permit b = breaker.acquirePermission();
+        long a = breaker.acquirePermission();
+        long b = breaker.acquirePermission();
         long before = breaker.generation();
         admin.release("route-a", "alice");
         assertThat(breaker.generation()).isEqualTo(before + 1);

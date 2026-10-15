@@ -9,7 +9,7 @@ import java.util.Optional;
  *
  * <p>Whoever is not handed this service cannot change a breaker's state. Every action is reported to the
  * {@link AdminListener} and logged through {@code System.Logger}. {@link CircuitState#FORCED_OPEN} and
- * {@link CircuitState#DISABLED} are left only by {@link #release}.
+ * {@link CircuitState#DISABLED} are left only by a manual action: {@link #forceOpen} and {@link #disable} replace one with the other, and {@link #release} is the only way back to automatic operation.
  *
  * @since 0.1.0
  */
