@@ -272,6 +272,29 @@ class LockFreeCircuitBreakerTest {
     }
 
     @Test
+    @DisplayName("A half-open probe budget at the tracked-admission limit still closes the breaker, and a larger one is refused")
+    void largestProbeBudgetClosesAndLargerIsRefused() throws Exception {
+        int budget = CircuitBreakerConfig.MAX_PERMITTED_CALLS_IN_HALF_OPEN_STATE;
+        LockFreeCircuitBreaker breaker = new LockFreeCircuitBreaker("b", config(2, 2, 5, budget));
+        fail(breaker);
+        fail(breaker);
+        Thread.sleep(15);
+        long[] probes = new long[budget];
+        for (int i = 0; i < budget; i++) {
+            probes[i] = breaker.acquirePermission();
+            assertThat(Permits.permitted(probes[i])).isTrue();
+        }
+        assertThat(Permits.permitted(breaker.acquirePermission())).isFalse();
+        for (long probe : probes) {
+            breaker.onSuccess(probe, 1);
+        }
+        assertThat(breaker.state()).isEqualTo(CircuitState.CLOSED);
+        assertThat(breaker.metrics().staleOutcomes()).isZero();
+
+        assertThatThrownBy(() -> config(2, 2, 5, budget + 1)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("A NaN failure-rate threshold is rejected")
     void nanThresholdIsRejected() {
         assertThatThrownBy(() -> CircuitBreakerConfig.builder().failureRateThreshold(Float.NaN).build())

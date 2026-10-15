@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class LockFreeCircuitBreaker implements CircuitBreaker {
 
     /** Admissions remembered for completion tracking; a power of two. */
-    static final int TRACKED_ADMISSIONS = 1024;
+    static final int TRACKED_ADMISSIONS = CircuitBreakerConfig.MAX_PERMITTED_CALLS_IN_HALF_OPEN_STATE;
 
     private static final int ADMITTED_SHIFT = 63;
     private static final int BREAKER_SHIFT = 43;

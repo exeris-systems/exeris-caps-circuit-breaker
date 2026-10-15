@@ -19,6 +19,12 @@ public record CircuitBreakerConfig(
         FailureClassifier failureClassifier
 ) {
 
+    /**
+     * The most probe calls a HALF_OPEN generation may admit: the number of admissions a breaker keeps track of,
+     * so that every probe can still report its outcome.
+     */
+    public static final int MAX_PERMITTED_CALLS_IN_HALF_OPEN_STATE = 1024;
+
     public static final CircuitBreakerConfig DEFAULT = new CircuitBreakerConfig(
             20, 5, 50.0f, 3_000_000_000L, 5, FailureClassifier.defaults()
     );
@@ -43,6 +49,10 @@ public record CircuitBreakerConfig(
         }
         if (permittedNumberOfCallsInHalfOpenState <= 0) {
             throw new IllegalArgumentException("permittedNumberOfCallsInHalfOpenState must be > 0");
+        }
+        if (permittedNumberOfCallsInHalfOpenState > MAX_PERMITTED_CALLS_IN_HALF_OPEN_STATE) {
+            throw new IllegalArgumentException(
+                    "permittedNumberOfCallsInHalfOpenState must be <= " + MAX_PERMITTED_CALLS_IN_HALF_OPEN_STATE);
         }
     }
 
