@@ -40,7 +40,7 @@ Gaps between the inventory and the code, found in the code:
 
 | Constraint | Effect here | Owner |
 |---|---|---|
-| Kernel licence gate (ADR-088, ADR-089) in kernel `0.13.0-SNAPSHOT` | Entitlement resolvable only from that line | `exeris-kernel` |
+| Kernel licence gate (ADR-088, ADR-089), released in kernel `0.13.x` (pinned `0.13.1`) | Entitlement resolvable only from that line | `exeris-kernel` |
 | `RequestFilterChain` contract (ADR-099) | 0.2.0 binds to it | `exeris-caps-service-boundary-core` |
 | ADR on the response-side seam (gateway-core 0.2.0) | Entry condition: no policy cap starts its 0.2.0 before it is accepted | `exeris-caps-gateway-core`, `exeris-docs` |
 | HLA §3.2 row differs from the code | Registry names `CircuitBreakerPolicy` and a `policy-chain` requirement | `exeris-docs` |
@@ -59,8 +59,8 @@ Gaps between the inventory and the code, found in the code:
 - [ ] `FailureClassifier` in the contract; default: transport error, timeout, HTTP 500, 502, 503, 504.
       No 4xx counts as a failure, 429 included: back-pressure is handled by retry / rate limiting, not by the breaker
 - [ ] Bounded registry: configurable limit, default 1024; exceeding it is an explicit error, never eviction
-- [ ] Kernel `0.13.0-SNAPSHOT`; SDK `0.12.0` and tooling `0.10.0` pins aligned
-- [ ] Artefacts stay `0.1.0-SNAPSHOT` until kernel `0.13.0` is released; a non-snapshot `0.1.0` is cut only after that
+- [x] Kernel `0.13.1`, SDK `0.13.3` and tooling `0.11.0` pinned; all three resolve from Maven Central
+- [x] Kernel `0.13.0` is released (`0.13.1` on Maven Central), so a non-snapshot `0.1.0` can be cut; artefacts stay `0.1.0-SNAPSHOT` until it is
 - [ ] Licence enforcement: `CircuitBreakerEntitlement` (id `exeris-caps-circuit-breaker`), `META-INF/services`
       registration, TCK test and boot test against the kernel's Phase 0 gate
 - [ ] `build.yml` green on JDK 25 and 26; `cap-manifest.json` committed through the two-pass build
